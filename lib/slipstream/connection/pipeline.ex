@@ -391,6 +391,26 @@ defmodule Slipstream.Connection.Pipeline do
     put_state(p, state)
   end
 
+  # the topic's join is finished, so it is no longer tracked
+  defp handle_message(
+         %{message: event(%Events.TopicLeft{} = event), state: state} = p
+       ) do
+    joins =
+      if Map.get(state.joins, event.topic) == event.ref,
+        do: Map.delete(state.joins, event.topic),
+        else: state.joins
+
+    state = %{
+      state
+      | joins: joins,
+        leaves: Map.delete(state.leaves, event.topic)
+    }
+
+    route_event state, event
+
+    put_state(p, state)
+  end
+
   defp handle_message(
          %{
            message: event(%Events.HeartbeatAcknowledged{}),

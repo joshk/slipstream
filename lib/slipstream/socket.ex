@@ -282,13 +282,25 @@ defmodule Slipstream.Socket do
              Events.TopicJoinFailed,
              Events.TopicJoinClosed
            ] do
-    put_in(socket, [Access.key(:joins), topic, Access.key(:status)], :closed)
+    joins =
+      case Map.fetch(socket.joins, topic) do
+        {:ok, join} -> Map.put(socket.joins, topic, %{join | status: :closed})
+        :error -> socket.joins
+      end
+
+    %{
+      socket
+      | joins: joins,
+        metadata: delete_join_metadata(socket.metadata, topic)
+    }
   end
 
   def apply_event(%__MODULE__{} = socket, %Events.ChannelClosed{}) do
     %{
       socket
       | channel_pid: nil,
+        # any join attempts in flight were ended by the disconnect
+        metadata: Map.put(socket.metadata, :joins, %{}),
         joins:
           Enum.into(socket.joins, %{}, fn {topic, %Join{} = join} ->
             {topic, %{join | status: :closed}}
@@ -337,4 +349,14 @@ defmodule Slipstream.Socket do
 
     Enum.at(backoff_times, try_number, default)
   end
+
+  # the telemetry start metadata of a join attempt which did not succeed
+  defp delete_join_metadata(%{joins: joins} = metadata, topic),
+    do: %{metadata | joins: Map.delete(joins, topic)}
+
+  # N.B.: sockets created with new_socket/0 always have join metadata. This
+  # only covers sockets built by hand as a `%Slipstream.Socket{}` struct
+  # coveralls-ignore-start
+  defp delete_join_metadata(metadata, _topic), do: metadata
+  # coveralls-ignore-stop
 end

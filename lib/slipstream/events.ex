@@ -98,7 +98,7 @@ defmodule Slipstream.Events do
         state
       )
       when ref != nil do
-    if State.leave_ref?(state, ref) do
+    if State.leave_ref?(state, topic, ref) do
       %TopicLeaveAccepted{topic: topic}
     else
       %ReplyReceived{
@@ -128,12 +128,12 @@ defmodule Slipstream.Events do
           topic: topic,
           event: "phx_close",
           payload: payload,
-          ref: _ref
+          ref: ref
         },
         _state
       )
       when map_size(payload) == 0 do
-    %TopicLeft{topic: topic}
+    %TopicLeft{topic: topic, ref: ref}
   end
 
   def map(message, _state) do

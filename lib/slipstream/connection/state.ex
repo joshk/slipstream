@@ -95,8 +95,8 @@ defmodule Slipstream.Connection.State do
   def join_ref?(%__MODULE__{joins: joins}, ref), do: ref in Map.values(joins)
 
   @doc """
-  Detects if a ref was used to request a topic leave
+  Detects if a ref was used to request a leave of the given topic
   """
-  def leave_ref?(%__MODULE__{leaves: leaves}, ref),
-    do: ref in Map.values(leaves)
+  def leave_ref?(%__MODULE__{leaves: leaves}, topic, ref),
+    do: Map.get(leaves, topic) == ref
 end
