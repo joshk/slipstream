@@ -136,14 +136,14 @@ defmodule Slipstream.Events do
     %TopicLeft{topic: topic}
   end
 
+  # messages which cannot be decoded or which are not part of the protocol
+  # are dropped: they are not dispatched to the client (which would see them
+  # as `handle_info(nil, socket)`)
   def map(message, _state) do
-    # coveralls-ignore-start
     Logger.debug(
       "#{inspect(__MODULE__)} received unknown message #{inspect(message)}"
     )
 
-    # coveralls-ignore-stop
-
-    nil
+    %__MODULE__.NoOp{}
   end
 end
