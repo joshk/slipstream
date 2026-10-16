@@ -136,7 +136,40 @@ defmodule Slipstream.Connection.Pipeline do
     end
   end
 
+  defp decode_message(%{raw_message: :resume_reading, state: state} = p) do
+    limit = state.config.max_client_queue_length
+
+    if client_queue_longer_than?(state, div(limit, 2)) do
+      schedule_resume_reading()
+
+      put_message(p, event(%Events.NoOp{}))
+    else
+      decode_message(%{
+        p
+        | raw_message: state.paused_message,
+          state: %{state | paused_message: nil}
+      })
+    end
+  end
+
   defp decode_message(p) do
+    if pause_reading?(p) do
+      schedule_resume_reading()
+
+      # acknowledgements of heartbeats cannot be read while paused (and may
+      # be queued behind the backlog after resuming), so the outstanding
+      # heartbeat is not counted against the server
+      state = %{p.state | paused_message: p.raw_message}
+
+      p
+      |> put_state(State.reset_heartbeat(state))
+      |> put_message(event(%Events.NoOp{}))
+    else
+      stream(p)
+    end
+  end
+
+  defp stream(p) do
     case Mint.WebSocket.stream(p.state.conn, p.raw_message) do
       {:ok, conn, messages} ->
         put_in(p.raw_message, messages)
@@ -222,6 +255,32 @@ defmodule Slipstream.Connection.Pipeline do
     :erlang.garbage_collect(self())
 
     p
+  end
+
+  # Heartbeats are still sent while reading from the socket is paused (so
+  # that the server does not time out the connection) but their
+  # acknowledgements cannot be read, so they are not checked
+  defp handle_message(
+         %{
+           message: command(%Commands.SendHeartbeat{}),
+           state: %State{paused_message: paused} = state
+         } = p
+       )
+       when paused != nil do
+    case state |> State.next_heartbeat_ref() |> Impl.push_heartbeat() do
+      {:ok, state} ->
+        put_state(p, State.reset_heartbeat(state))
+
+      # N.B.: writing to the socket only fails when the TCP connection breaks
+      # in the middle of a write, which cannot be arranged reliably in a test
+      # coveralls-ignore-start
+      {:error, state, reason} ->
+        route_event state,
+                    %Events.ChannelClosed{reason: {:send_failure, reason}}
+
+        put_return(p, {:stop, :normal, state})
+        # coveralls-ignore-stop
+    end
   end
 
   # coveralls-ignore-start
@@ -479,6 +538,42 @@ defmodule Slipstream.Connection.Pipeline do
   end
 
   defp default_return(p), do: p
+
+  # --- backpressure (see the :max_client_queue_length option)
+
+  @resume_reading_interval 10
+
+  # Mint uses `active: :once` sockets, so while a data message is held back
+  # no further data is read from the socket
+  defp pause_reading?(%{raw_message: message, state: state}) do
+    limit = state.config.max_client_queue_length
+
+    limit > 0 and
+      match?(
+        {tag, _socket, data} when tag in [:tcp, :ssl] and is_binary(data),
+        message
+      ) and
+      client_queue_longer_than?(state, limit)
+  end
+
+  defp client_queue_longer_than?(state, length) do
+    case Process.info(state.client_pid, :message_queue_len) do
+      {:message_queue_len, queue_length} ->
+        queue_length > length
+
+      # N.B.: the client has exited and its :DOWN message is on the way. This
+      # needs the client to exit between the connection receiving data and
+      # checking the client's queue, which cannot be timed in a test
+      # coveralls-ignore-start
+      nil ->
+        false
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp schedule_resume_reading do
+    Process.send_after(self(), :resume_reading, @resume_reading_interval)
+  end
 
   @spec build_events(t()) :: t()
   defp build_events(%__MODULE__{events: []} = p), do: p

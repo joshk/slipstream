@@ -12,6 +12,9 @@ defmodule Slipstream.Connection.State do
   # as the implementor
 
   defstruct [
+    # a message from the socket which has not been handled yet because the
+    # client process is backed up (see the :max_client_queue_length option)
+    :paused_message,
     :connection_id,
     :trace_id,
     :client_pid,

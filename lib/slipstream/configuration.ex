@@ -34,6 +34,25 @@ defmodule Slipstream.Configuration do
       type: :atom,
       default: Slipstream.Serializer.PhoenixSocketV2Serializer
     ],
+    max_client_queue_length: [
+      doc: """
+      Applies backpressure to the remote server when the client process falls
+      behind. The connection process reads from the socket as fast as it can
+      and sends each message to the client process, so a client which handles
+      messages more slowly than the server sends them accumulates an
+      unbounded message queue. When this option is set and the client
+      process's message queue is longer than this many messages, the
+      connection process stops reading from the socket (so TCP flow control
+      slows the server down) until the queue has drained to half this length.
+      Note that a single read from the socket may contain many messages, so
+      the queue may exceed this length by up to one read's worth of messages
+      (at most the size of the socket's receive buffer). Heartbeats are
+      still sent while reading is paused, but heartbeat timeouts are not
+      detected until reading resumes. A value of `0` disables backpressure.
+      """,
+      type: :non_neg_integer,
+      default: 0
+    ],
     json_parser: [
       doc: """
       A JSON parser module which exports at least `encode!/1` and `decode!/1`.
@@ -142,6 +161,7 @@ defmodule Slipstream.Configuration do
           headers: [{String.t(), String.t()}],
           json_parser: module(),
           serializer: module(),
+          max_client_queue_length: non_neg_integer(),
           reconnect_after_msec: [non_neg_integer()],
           rejoin_after_msec: [non_neg_integer()]
         }
