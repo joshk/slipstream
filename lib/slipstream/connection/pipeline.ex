@@ -393,14 +393,17 @@ defmodule Slipstream.Connection.Pipeline do
 
   defp handle_message(
          %{
-           message: event(%Events.HeartbeatAcknowledged{}),
-           state: %State{} = state
+           message: event(%Events.HeartbeatAcknowledged{ref: ref}),
+           state: %State{heartbeat_ref: ref} = state
          } = p
        ) do
-    # coveralls-ignore-start
     put_state(p, State.reset_heartbeat(state))
-    # coveralls-ignore-stop
   end
+
+  # an acknowledgement of an earlier heartbeat (e.g. one which arrived late)
+  # says nothing about whether the outstanding heartbeat will be answered
+  defp handle_message(%{message: event(%Events.HeartbeatAcknowledged{})} = p),
+    do: p
 
   defp handle_message(
          %{

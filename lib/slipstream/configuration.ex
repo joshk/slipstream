@@ -11,9 +11,15 @@ defmodule Slipstream.Configuration do
     ],
     heartbeat_interval_msec: [
       doc: """
-      The time between heartbeat messages. A value of `0` will disable automatic
-      heartbeat sending. Note that a Phoenix.Channel will close out a connection
-      after 60 seconds of inactivity (`60_000`).
+      The time between heartbeat messages. If the server has not acknowledged
+      a heartbeat by the time the next one is due, the connection is closed
+      and `c:Slipstream.handle_disconnect/2` is invoked with
+      `:heartbeat_timeout`. A value of `0` will disable automatic heartbeat
+      sending, and with it the detection of a connection which has silently
+      stopped working (e.g. a half-open TCP connection): such a connection
+      is then only noticed when a write to it fails. Note that a
+      Phoenix.Channel will close out a connection after 60 seconds of
+      inactivity (`60_000`).
       """,
       type: :non_neg_integer,
       default: 30_000
