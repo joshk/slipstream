@@ -1272,6 +1272,9 @@ defmodule Slipstream do
 
   @doc """
   Awaits a pending join request synchronously
+
+  Returns `{:error, :not_connected}` without waiting for `timeout` if the
+  socket is not connected or the connection closes while waiting.
   """
   @doc since: "0.1.0"
   @doc synchronicity: :synchronous
@@ -1279,17 +1282,36 @@ defmodule Slipstream do
           {:ok, Socket.t()} | {:error, term()}
   def await_join(socket, topic, timeout \\ @default_timeout)
       when is_binary(topic) do
-    receive do
-      event(%Events.TopicJoinSucceeded{topic: ^topic} = event) ->
-        {:ok, Socket.apply_event(socket, event)}
+    {monitor, timeout, timeout_reason} = monitor_channel(socket, timeout)
 
-      # coveralls-ignore-start
-      event(%Events.TopicJoinFailed{topic: ^topic} = event) ->
-        {:error, Events.TopicJoinFailed.to_reason(event)}
-    after
-      timeout ->
-        {:error, :timeout}
-        # coveralls-ignore-stop
+    result =
+      receive do
+        event(%Events.TopicJoinSucceeded{topic: ^topic} = event) ->
+          {:ok, Socket.apply_event(socket, event)}
+
+        event(%Events.TopicJoinFailed{topic: ^topic} = event) ->
+          {:error, Events.TopicJoinFailed.to_reason(event)}
+
+        {:DOWN, ^monitor, :process, _pid, _reason} ->
+          {:error, :not_connected}
+      after
+        timeout -> {:error, timeout_reason}
+      end
+
+    Process.demonitor(monitor, [:flush])
+
+    result
+  end
+
+  # The await functions which wait on the connection monitor it so they can
+  # return as soon as it goes away. Events the connection sent before exiting
+  # are delivered before the :DOWN message, so they are still received. When
+  # the socket is not connected any such events already in the mailbox are
+  # received but nothing is waited for.
+  defp monitor_channel(socket, timeout) do
+    case Socket.channel_pid(socket) do
+      nil -> {make_ref(), 0, :not_connected}
+      pid -> {Process.monitor(pid), timeout, :timeout}
     end
   end
 
@@ -1318,6 +1340,9 @@ defmodule Slipstream do
 
   @doc """
   Awaits a leave request synchronously
+
+  Returns `{:error, :not_connected}` without waiting for `timeout` if the
+  socket is not connected or the connection closes while waiting.
   """
   @doc since: "0.1.0"
   @doc synchronicity: :synchronous
@@ -1325,15 +1350,22 @@ defmodule Slipstream do
           {:ok, Socket.t()} | {:error, term()}
   def await_leave(socket, topic, timeout \\ @default_timeout)
       when is_binary(topic) do
-    receive do
-      event(%Events.TopicLeft{topic: ^topic} = event) ->
-        {:ok, Socket.apply_event(socket, event)}
-    after
-      # coveralls-ignore-start
-      timeout ->
-        {:error, :timeout}
-        # coveralls-ignore-stop
-    end
+    {monitor, timeout, timeout_reason} = monitor_channel(socket, timeout)
+
+    result =
+      receive do
+        event(%Events.TopicLeft{topic: ^topic} = event) ->
+          {:ok, Socket.apply_event(socket, event)}
+
+        {:DOWN, ^monitor, :process, _pid, _reason} ->
+          {:error, :not_connected}
+      after
+        timeout -> {:error, timeout_reason}
+      end
+
+    Process.demonitor(monitor, [:flush])
+
+    result
   end
 
   @doc """
