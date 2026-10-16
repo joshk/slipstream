@@ -274,7 +274,7 @@ defmodule Slipstream do
 
       @impl Slipstream
       def handle_info(:do_work, socket) do
-        ref = push(socket, "worker_queue:foo", "do_work", %{})
+        {:ok, ref} = push(socket, "worker_queue:foo", "do_work", %{})
 
         {:noreply, assign(socket, :work_ref, ref)}
       end
@@ -631,7 +631,7 @@ defmodule Slipstream do
 
       @impl Slipstream
       def handle_join(topic, _params, socket) do
-        my_req = push(socket, topic, "msg:new", %{"foo" => "bar"})
+        {:ok, my_req} = push(socket, topic, "msg:new", %{"foo" => "bar"})
 
         {:ok, assign(socket, :request, my_req)}
       end
@@ -1047,17 +1047,18 @@ defmodule Slipstream do
   ## Examples
 
       @impl Slipstream
-      def handle_join(:success, _response, state) do
-        {:ok, hello_request} = push(socket, "rooms:lobby", "new:msg", %{user: 1, body: "hello"})
+      def handle_join("rooms:lobby", _response, socket) do
+        {:ok, hello_request} =
+          push(socket, "rooms:lobby", "new:msg", %{user: 1, body: "hello"})
 
-        {:ok, Map.put(state, :hello_request, hello_request)}
+        {:ok, assign(socket, :hello_request, hello_request)}
       end
 
       @impl Slipstream
-      def handle_reply(ref, reply, %{hello_request: ref} = state) do
+      def handle_reply(ref, reply, %{assigns: %{hello_request: ref}} = socket) do
         IO.inspect(reply, label: "nice, a response.")
 
-        {:ok, state}
+        {:ok, socket}
       end
   """
   @doc since: "0.1.0"
@@ -1175,7 +1176,9 @@ defmodule Slipstream do
           |> disconnect()
           |> await_disconnect()
 
-        {:noreply, reconnect(socket)}
+        {:ok, socket} = reconnect(socket)
+
+        {:noreply, socket}
       end
   """
   @doc since: "0.1.0"
