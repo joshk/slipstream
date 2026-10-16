@@ -1574,11 +1574,21 @@ defmodule Slipstream do
             ),
             socket
           ) do
-        socket = TelemetryHelper.begin_join(socket, cmd.topic, cmd.payload)
+        # The command was scheduled by rejoin/3 with the socket as it was at
+        # the time. The client may have reconnected since then, so the join
+        # is sent with the socket as it is now.
+        if Slipstream.Socket.connected?(socket) do
+          socket =
+            socket
+            |> TelemetryHelper.begin_join(cmd.topic, cmd.payload)
+            |> Slipstream.Socket.put_join_requested(cmd.topic)
 
-        _ = Slipstream.CommandRouter.route_command(cmd)
+          _ = Slipstream.CommandRouter.route_command(%{cmd | socket: socket})
 
-        {:noreply, socket}
+          {:noreply, socket}
+        else
+          {:noreply, socket}
+        end
       end
     end
   end

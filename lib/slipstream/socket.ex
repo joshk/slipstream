@@ -312,6 +312,27 @@ defmodule Slipstream.Socket do
     {time, socket}
   end
 
+  # marks a known topic's join as requested, e.g. when a scheduled rejoin is
+  # sent
+  @doc false
+  @spec put_join_requested(t(), String.t()) :: t()
+  def put_join_requested(%__MODULE__{} = socket, topic) do
+    case Map.fetch(socket.joins, topic) do
+      {:ok, join} ->
+        %{
+          socket
+          | joins: Map.put(socket.joins, topic, %{join | status: :requested})
+        }
+
+      # N.B.: rejoin/3 only schedules joins of topics in `joins` and topics
+      # are never removed from it, so this is defensive and unreachable
+      # coveralls-ignore-start
+      :error ->
+        socket
+        # coveralls-ignore-stop
+    end
+  end
+
   @doc false
   @spec next_rejoin_time(t(), String.t()) :: {non_neg_integer(), t()}
   def next_rejoin_time(socket, topic) do
