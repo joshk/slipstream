@@ -9,9 +9,17 @@ defmodule Slipstream.Connection do
 
   alias Slipstream.Connection.{State, Pipeline, Telemetry}
 
-  def start_link(init_arg) do
-    GenServer.start_link(__MODULE__, init_arg)
+  def start_link(%Slipstream.Commands.OpenConnection{config: config} = init_arg) do
+    GenServer.start_link(__MODULE__, init_arg,
+      hibernate_after: hibernate_after(config)
+    )
   end
+
+  # Hibernating garbage collects the process, releasing references to large
+  # binaries (e.g. received frames) which an idle connection process would
+  # otherwise keep alive until its next garbage collection
+  defp hibernate_after(%{hibernate_after_msec: 0}), do: :infinity
+  defp hibernate_after(%{hibernate_after_msec: msec}), do: msec
 
   @impl GenServer
   def init(%Slipstream.Commands.OpenConnection{

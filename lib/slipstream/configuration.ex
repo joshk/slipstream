@@ -27,6 +27,17 @@ defmodule Slipstream.Configuration do
       type: {:list, {:custom, __MODULE__, :parse_pair_of_strings, []}},
       default: []
     ],
+    hibernate_after_msec: [
+      doc: """
+      The time after which an idle connection process hibernates. Hibernation
+      garbage collects the connection process, which releases memory such as
+      large messages which have already been handled. See the
+      `:hibernate_after` option of `GenServer.start_link/3`. A value of `0`
+      disables hibernation.
+      """,
+      type: :non_neg_integer,
+      default: 15_000
+    ],
     serializer: [
       doc: """
       A serializer module which exports at least `encode!/1` and `decode!/2`.
@@ -141,6 +152,7 @@ defmodule Slipstream.Configuration do
           heartbeat_interval_msec: non_neg_integer(),
           headers: [{String.t(), String.t()}],
           json_parser: module(),
+          hibernate_after_msec: non_neg_integer(),
           serializer: module(),
           reconnect_after_msec: [non_neg_integer()],
           rejoin_after_msec: [non_neg_integer()]
