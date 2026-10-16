@@ -223,3 +223,38 @@ defmodule Slipstream.Configuration do
 
   # coveralls-ignore-stop
 end
+
+defimpl Inspect, for: Slipstream.Configuration do
+  # Configuration is part of the connection process's state, so it appears
+  # in crash reports, logs and telemetry handler output. Header values (e.g.
+  # an authorization token) and URI userinfo (e.g. basic auth credentials)
+  # are redacted so that credentials do not end up there.
+  @redacted "**redacted**"
+
+  def inspect(%Slipstream.Configuration{} = config, opts) do
+    config = %{
+      config
+      | headers: redact_headers(config.headers),
+        uri: redact_userinfo(config.uri)
+    }
+
+    Inspect.Any.inspect(config, opts)
+  end
+
+  defp redact_headers(headers) when is_list(headers),
+    do: Enum.map(headers, fn {name, _value} -> {name, @redacted} end)
+
+  defp redact_headers(headers), do: headers
+
+  # the (deprecated) authority field contains the userinfo too
+  defp redact_userinfo(%URI{userinfo: userinfo} = uri)
+       when is_binary(userinfo) do
+    %{
+      uri
+      | userinfo: @redacted,
+        authority: String.replace(uri.authority || "", userinfo, @redacted)
+    }
+  end
+
+  defp redact_userinfo(uri), do: uri
+end
