@@ -309,7 +309,7 @@ defmodule Slipstream.Socket do
         socket.reconnect_counter - 1
       )
 
-    {time, socket}
+    {jitter(time, socket.channel_config), socket}
   end
 
   @doc false
@@ -328,8 +328,14 @@ defmodule Slipstream.Socket do
         socket.joins[topic].rejoin_counter - 1
       )
 
-    {time, socket}
+    {jitter(time, socket.channel_config), socket}
   end
+
+  defp jitter(time, %Slipstream.Configuration{backoff_jitter: jitter})
+       when is_number(jitter) and jitter > 0,
+       do: time - round(:rand.uniform() * jitter * time)
+
+  defp jitter(time, _config), do: time
 
   defp retry_time(backoff_times, try_number) do
     # when we hit the end of the list, we repeat the last value in the list

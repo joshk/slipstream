@@ -63,6 +63,20 @@ defmodule Slipstream.Configuration do
       type: {:list, :non_neg_integer},
       default: [100, 500, 1_000, 2_000, 5_000, 10_000]
     ],
+    backoff_jitter: [
+      doc: """
+      A number between `0` and `1` which randomises the times taken from
+      `:reconnect_after_msec` and `:rejoin_after_msec`. Each time is reduced
+      by a random amount of up to this fraction of the time, e.g. with a
+      jitter of `0.5` a time of `1_000` becomes a random time between `500`
+      and `1_000`. When many clients lose their connection at once (for
+      example when the server restarts), jitter spreads their reconnection
+      attempts out instead of having them reconnect in lockstep. A value of
+      `0` disables jitter.
+      """,
+      type: {:custom, __MODULE__, :parse_jitter, []},
+      default: 0
+    ],
     mint_opts: [
       doc: """
       A keywordlist of options to pass to `Mint.HTTP.connect/4` when opening
@@ -138,6 +152,7 @@ defmodule Slipstream.Configuration do
 
   @type t :: %__MODULE__{
           uri: %URI{},
+          backoff_jitter: number(),
           heartbeat_interval_msec: non_neg_integer(),
           headers: [{String.t(), String.t()}],
           json_parser: module(),
@@ -209,6 +224,17 @@ defmodule Slipstream.Configuration do
   # coveralls-ignore-stop
 
   defp assume_port(uri), do: uri
+
+  @doc false
+  def parse_jitter(jitter)
+      when is_number(jitter) and jitter >= 0 and jitter <= 1,
+      do: {:ok, jitter}
+
+  def parse_jitter(jitter) do
+    {:error,
+     "invalid backoff_jitter #{inspect(jitter)}: " <>
+       "please provide a number between 0 and 1"}
+  end
 
   @doc false
   # coveralls-ignore-start
