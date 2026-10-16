@@ -3,5 +3,6 @@ defmodule Slipstream.Events.ChannelConnectFailed do
 
   @type t :: %__MODULE__{}
 
-  defstruct ~w[reason]a
+  # pid is the connection process which failed to connect
+  defstruct ~w[pid reason]a
 end

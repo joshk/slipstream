@@ -19,6 +19,9 @@ defmodule Slipstream.Socket do
   defstruct [
     :channel_pid,
     :socket_pid,
+    # the connection process most recently started for this socket, whether
+    # or not it has finished connecting
+    :connection_pid,
     :channel_config,
     :response_headers,
     metadata: %{},
@@ -34,6 +37,7 @@ defmodule Slipstream.Socket do
   @type t :: %__MODULE__{
           channel_pid: nil | pid(),
           socket_pid: pid(),
+          connection_pid: nil | pid(),
           channel_config: Slipstream.Configuration.t() | nil,
           metadata: %{atom() => String.t() | %{String.t() => String.t()}},
           reconnect_counter: non_neg_integer(),
@@ -250,6 +254,18 @@ defmodule Slipstream.Socket do
     %__MODULE__{socket | joins: Map.put_new(socket.joins, topic, join)}
   end
 
+  # Events about connecting which come from a connection process other than
+  # the one most recently started for this socket are stale: that connection
+  # has been replaced. In test mode no connection process is started.
+  @doc false
+  @spec stale_event?(t(), struct()) :: boolean()
+  def stale_event?(%__MODULE__{connection_pid: current}, %type{pid: pid})
+      when type in [Events.ChannelConnected, Events.ChannelConnectFailed] and
+             is_pid(current),
+      do: pid != current
+
+  def stale_event?(_socket, _event), do: false
+
   # potentially changes a socket by applying an event to it
   @doc false
   @spec apply_event(t(), struct()) :: t()
@@ -286,9 +302,17 @@ defmodule Slipstream.Socket do
   end
 
   def apply_event(%__MODULE__{} = socket, %Events.ChannelClosed{}) do
+    # the connected connection process has closed, so the socket no longer
+    # has a connection process
+    connection_pid =
+      if socket.connection_pid == socket.channel_pid,
+        do: nil,
+        else: socket.connection_pid
+
     %{
       socket
       | channel_pid: nil,
+        connection_pid: connection_pid,
         joins:
           Enum.into(socket.joins, %{}, fn {topic, %Join{} = join} ->
             {topic, %{join | status: :closed}}

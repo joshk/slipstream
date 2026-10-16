@@ -87,6 +87,7 @@ defmodule Slipstream.Connection.Pipeline do
         }
 
         event = %Events.ChannelConnectFailed{
+          pid: self(),
           reason: {:upgrade_failure, failure_info}
         }
 
@@ -507,7 +508,7 @@ defmodule Slipstream.Connection.Pipeline do
   end
 
   defp build_event(:channel_connect_failed, attrs) do
-    %Events.ChannelConnectFailed{reason: attrs.reason}
+    %Events.ChannelConnectFailed{pid: self(), reason: attrs.reason}
   end
 
   # --- token API

@@ -20,6 +20,14 @@ defmodule Slipstream.Callback do
           | {:stop, reason :: term(), new_socket}
         when new_socket: term()
   def dispatch(module, event, socket) do
+    if Socket.stale_event?(socket, event) do
+      {:noreply, socket}
+    else
+      do_dispatch(module, event, socket)
+    end
+  end
+
+  defp do_dispatch(module, event, socket) do
     socket = Socket.apply_event(socket, event)
     {function, args} = determine_callback(event, socket)
 

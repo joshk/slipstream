@@ -805,11 +805,7 @@ defmodule Slipstream do
   def connect(%Socket{} = socket \\ new_socket(), opts) do
     case Slipstream.Configuration.validate(opts) do
       {:ok, config} ->
-        socket = TelemetryHelper.begin_connect(socket, config)
-
-        route_command %Commands.OpenConnection{config: config, socket: socket}
-
-        {:ok, %{socket | channel_config: config}}
+        {:ok, __open_connection__(socket, config)}
 
       {:error, reason} ->
         {:error, reason}
@@ -828,12 +824,44 @@ defmodule Slipstream do
   @spec connect!(socket :: Socket.t(), opts :: Keyword.t()) :: Socket.t()
   def connect!(%Socket{} = socket \\ new_socket(), opts) do
     config = Slipstream.Configuration.validate!(opts)
-    socket = TelemetryHelper.begin_connect(socket, config)
 
-    route_command %Commands.OpenConnection{config: config, socket: socket}
-
-    %{socket | channel_config: config}
+    __open_connection__(socket, config)
   end
+
+  # Starts a connection process for the socket. A socket has at most one
+  # connection process: any connection process previously started for the
+  # socket is stopped first, whether or not it had finished connecting.
+  @doc false
+  @spec __open_connection__(Socket.t(), Slipstream.Configuration.t()) ::
+          Socket.t()
+  def __open_connection__(%Socket{} = socket, config) do
+    socket =
+      socket
+      |> stop_connection()
+      |> TelemetryHelper.begin_connect(config)
+      |> Map.put(:channel_config, config)
+
+    case route_command(%Commands.OpenConnection{config: config, socket: socket}) do
+      {:ok, pid} -> %{socket | connection_pid: pid}
+      # test mode (no connection process) or the process failed to start
+      _other -> socket
+    end
+  end
+
+  defp stop_connection(%Socket{connection_pid: pid} = socket)
+       when is_pid(pid) do
+    _ = DynamicSupervisor.terminate_child(Slipstream.ConnectionSupervisor, pid)
+
+    socket = %{socket | connection_pid: nil}
+
+    if socket.channel_pid == pid do
+      Socket.apply_event(socket, %Events.ChannelClosed{reason: :superseded})
+    else
+      socket
+    end
+  end
+
+  defp stop_connection(socket), do: socket
 
   @doc """
   Request reconnection given the last-used connection configuration
@@ -1196,11 +1224,17 @@ defmodule Slipstream do
   @spec await_connect(socket :: Socket.t(), timeout()) ::
           {:ok, Socket.t()} | {:error, term()}
   def await_connect(socket, timeout \\ @default_timeout) do
+    # events from a connection process which has since been replaced by
+    # connect/2 or reconnect/1 are left for the client to ignore
+    current = socket.connection_pid
+
     receive do
-      event(%Events.ChannelConnected{} = event) ->
+      event(%Events.ChannelConnected{pid: pid} = event)
+      when is_nil(current) or pid == current ->
         {:ok, Socket.apply_event(socket, event)}
 
-      event(%Events.ChannelConnectFailed{} = event) ->
+      event(%Events.ChannelConnectFailed{pid: pid} = event)
+      when is_nil(current) or pid == current ->
         {:error, event.reason}
     after
       # coveralls-ignore-start
@@ -1561,11 +1595,13 @@ defmodule Slipstream do
             ),
             socket
           ) do
-        socket = TelemetryHelper.begin_connect(socket, cmd.config)
-
-        _ = Slipstream.CommandRouter.route_command(cmd)
-
-        {:noreply, socket}
+        # a reconnect scheduled by reconnect/1 is moot if the socket has
+        # connected in the meantime
+        if Slipstream.Socket.connected?(socket) do
+          {:noreply, socket}
+        else
+          {:noreply, Slipstream.__open_connection__(socket, cmd.config)}
+        end
       end
 
       def handle_info(
