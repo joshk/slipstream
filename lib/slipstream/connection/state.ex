@@ -28,7 +28,9 @@ defmodule Slipstream.Connection.State do
     joins: %{},
     leaves: %{},
     current_ref: 0,
-    current_ref_str: "0"
+    current_ref_str: "0",
+    # bytes received since the last complete text or binary message
+    partial_message_bytes: 0
   ]
 
   @doc """

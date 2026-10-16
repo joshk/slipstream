@@ -41,6 +41,22 @@ defmodule Slipstream.Configuration do
       type: :atom,
       default: Jason
     ],
+    max_message_bytes: [
+      doc: """
+      The maximum size in bytes of a message (a frame, or all of the
+      fragments of a fragmented message) from the server. Partial messages
+      are buffered by the connection process until they are complete, so
+      without a limit a misbehaving server (or anything between it and the
+      client) can make the client buffer arbitrarily large amounts of
+      data. When a message exceeds this size the connection is closed and
+      `c:Slipstream.handle_disconnect/2` is invoked with
+      `{:message_too_large, max_message_bytes}`. The limit is checked as
+      data is read from the socket, so up to one read's worth of data more
+      than the limit may be buffered. A value of `0` disables the limit.
+      """,
+      type: :non_neg_integer,
+      default: 0
+    ],
     reconnect_after_msec: [
       doc: """
       A list of times to reference for trying reconnection when
@@ -143,6 +159,7 @@ defmodule Slipstream.Configuration do
           json_parser: module(),
           serializer: module(),
           reconnect_after_msec: [non_neg_integer()],
+          max_message_bytes: non_neg_integer(),
           rejoin_after_msec: [non_neg_integer()]
         }
 

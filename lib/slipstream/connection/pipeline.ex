@@ -103,7 +103,12 @@ defmodule Slipstream.Connection.Pipeline do
         {:data, ^ref, data}, {:ok, state, acc} ->
           case Mint.WebSocket.decode(state.websocket, data) do
             {:ok, websocket, frames} ->
-              {:cont, {:ok, put_in(state.websocket, websocket), acc ++ frames}}
+              state = put_in(state.websocket, websocket)
+
+              case check_message_size(state, frames, data) do
+                {:ok, state} -> {:cont, {:ok, state, acc ++ frames}}
+                {:error, state, reason} -> {:halt, {:error, state, reason}}
+              end
 
             # coveralls-ignore-start
             {:error, websocket, reason} ->
@@ -500,6 +505,31 @@ defmodule Slipstream.Connection.Pipeline do
     end)
 
     p
+  end
+
+  # Mint.WebSocket buffers partial frames and the fragments of a fragmented
+  # message without limit. The bytes received since the last complete data
+  # message are counted so that a message larger than :max_message_bytes
+  # fails the connection instead of being buffered. Control frames (e.g. a
+  # ping between fragments) do not end a message.
+  defp check_message_size(%{config: %{max_message_bytes: 0}} = state, _, _),
+    do: {:ok, state}
+
+  defp check_message_size(state, frames, data) do
+    partial_bytes =
+      if Enum.any?(
+           frames,
+           &match?({type, _data} when type in [:text, :binary], &1)
+         ),
+         do: 0,
+         else: state.partial_message_bytes + byte_size(data)
+
+    state = %{state | partial_message_bytes: partial_bytes}
+    limit = state.config.max_message_bytes
+
+    if partial_bytes > limit,
+      do: {:error, state, {:message_too_large, limit}},
+      else: {:ok, state}
   end
 
   defp build_event(:channel_closed, attrs) do
