@@ -43,8 +43,10 @@ defmodule Slipstream.SocketTestTest do
     end
 
     test "passing a dead client will raise ArgumentError" do
-      pid = spawn(fn -> exit(:normal) end)
-      ref = Process.monitor(pid)
+      # spawn_monitor/1 monitors atomically: with spawn/1 and then
+      # Process.monitor/1 the process may already have exited, which gives
+      # a :noproc reason
+      {pid, ref} = spawn_monitor(fn -> exit(:normal) end)
 
       assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
       refute Process.alive?(pid)
